@@ -4,6 +4,8 @@ using TASOPT
 using Printf
 using Plots
 using NLopt
+using CSV
+using DataFrames
 
 # you can optionally define
 # const tas = TASOPT 
@@ -21,9 +23,10 @@ OPRarray = []
 plot_obj = nothing
 
 # Load default aircraft model
-ac = load_default_model()
-# ac.engine.model.weight_model_name = "fitzgerald_adv"
-size_aircraft!(ac)
+ac = read_aircraft_model(
+    "C:/Users/Julia/Documents/TASOPT.jl/example/defaults/default_input.toml",
+    templatefile = "C:/Users/Julia/Documents/TASOPT.jl/example/defaults/default_input.toml"
+)
 
 # For constraint logging
 struct Constraint
@@ -51,11 +54,13 @@ function obj(x, grad)
     ac.para[iarclt, ipclimb2:ipdescent4, 1] .= x[10]        # Tip/root CL ratio = clt/clo
     
     # Update engine parameters
+
+    # fixed engine parameters that were only being set for ipcruise1 before, not ipcruise2 - need to update for all cruise points
     ac.pare[ieTt4, ipcruise1:ipcruise2, 1] .= x[11]         # Turbine inlet temperature [K]
-    ac.pare[iepihc, ipcruise1, 1] = x[12]        # High pressure compressor pressure ratio
-    ac.pare[iepif, ipcruise1, 1] = x[13]                   # Fan pressure ratio
+    ac.pare[iepihc, ipcruise1:ipcruise2, 1] .= x[12]        # High pressure compressor pressure ratio
+    ac.pare[iepif, ipcruise1:ipcruise2, 1] .= x[13]                   # Fan pressure ratio
     ac.pare[iepilc, ipcruise1, 1] = 3.0          # Low pressure compressor pressure ratio (fixed)
-    ac.pare[ieBPR, ipcruise1, 1] = x[14] # Bypass ratio
+    ac.pare[ieBPR,  ipcruise1:ipcruise2, 1] .= x[14] # Bypass ratio
 
     # Size aircraft with new parameters
     try
@@ -98,7 +103,8 @@ function obj(x, grad)
     end
 
     # 3. Maximum turbine temperature constraint
-    Tt3max = 900.0  # [K]
+    # changed max tt3max (tons of errors with tt3 during optimization bc was too low previously)
+    Tt3max = 1050.0  # [K]
     Tt3 = maximum(ac.pare[ieTt3, :, 1])
     if Tt3 > Tt3max
         constraint = Tt3/Tt3max - 1.0
@@ -117,6 +123,8 @@ function obj(x, grad)
         total_penalty += penalty
         push!(violated_constraints, Constraint("Fuel volume", Wf, Wfmax, penalty))
     end
+
+    # TODO change the design mission to change the top of climb
 
     # Optional additional constraints (commented out for flexibility)
     # 5. Maximum metal temperature constraint
@@ -213,8 +221,9 @@ end
 # Design variable bounds and initial values
 # Variables: [AR, CL, sweep, altitude, λ_in, λ_out, t/c_root, t/c_span, rcls, rclt, Tt4, π_hc, π_f, BPR]
 
-lower = [6.0,  0.45, 25.0, 10000.0, 0.65, 0.1,  0.125, 0.125, 0.9,  0.7,  1400.0, 10.0, 1.25, 1.0]
-upper = [18.0, 0.75, 30.0, 20000.0, 0.85, 0.4,  0.15,  0.15,  1.3,  1.0,  1650.0, 15.0, 2.0, 20.0]
+lower = [8.0,  0.45, 25.0, 9000.0, 0.65, 0.1,  0.125, 0.125, 0.9,  0.7,  1400.0, 10.0, 1.25, 1.0]
+upper = [15.0, 0.75, 30.0, 13000.0, 0.85, 0.4,  0.15,  0.15,  1.3,  1.0,  1650.0, 15.0, 2.0, 20.0]
+# fixed cruise_alt input to be meters (was in ft)
 
 # Set initial values based on default aircraft or user specification
 initial = [
@@ -240,26 +249,27 @@ for i in 1:length(initial)
 end
 
 # Initial step sizes for optimization
-initial_dx = [0.5, 0.05, 0.1, 200.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 100.0, 0.5, 0.05, 1.0]
+initial_dx = [0.5, 0.05, 0.1, 150.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 100.0, 0.5, 0.05, 1.0]
+# updated initial dx to match meters
 
 println(length(initial), length(initial_dx), length(upper), length(lower))
 # Optimization settings
-f_tol_rel = 1e-6
+f_tol_rel = 1e-5
 maxeval = 1000  # Maximum number of function evaluations
 
 # Set up NLopt optimizer
 opt = NLopt.Opt(:LN_NELDERMEAD, length(initial))
 # Alternative optimizers:
 # opt = NLopt.Opt(:LN_BOBYQA, length(initial))    # Good for smooth functions
-# opt = NLopt.Opt(:LN_COBYLA, length(initial))    # Handles constraints well
-# opt = NLopt.Opt(:LN_SBPLX, length(initial))     # Subplex algorithm
+# opt = NLopt.Opt(:LN_COBsYLA, length(initial))    # Handles constraints well
+#opt = NLopt.Opt(:LN_SBPLX, length(initial))     # Subplex algorithm
 
 # Configure optimizer
 opt.lower_bounds = lower
 opt.upper_bounds = upper
 opt.min_objective = obj
 opt.initial_step = initial_dx
-opt.ftol_rel = f_tol_rel
+opt.ftol_rel = f_tol_rel  
 opt.maxeval = maxeval
 
 # Print optimization setup
@@ -280,6 +290,21 @@ println("="^60)
 println("Starting optimization...")
 (optf, optx, ret) = NLopt.optimize(opt, initial)
 
+# plot payload range for optimized design
+ac_opt = deepcopy(ac)
+TASOPT.PayloadRange(ac_opt, plots_OEW = true)
+
+pub_ranges_nmi = [0, 2100, 3350, 4010]
+pub_ZFW_lb = [121700, 121700, 108900, 84500] .* lbf_to_N ./ (9.81 * 1000)
+
+plot!(pub_ranges_nmi, pub_ZFW_lb,
+    label="Published Data",
+    marker=:diamond, ms=8, lw=2, color=:red, linestyle=:dash)
+
+    savefig("optimized_payload_range.png")
+
+TASOPT.weight_buildup(ac_opt) 
+TASOPT.geometry(ac_opt)
 # opt_time = @elapsed begin
 #     try
 #         (optf, optx, ret) = NLopt.optimize(opt, initial)
