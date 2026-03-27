@@ -51,7 +51,7 @@
     fuel_in_wing    = true # Is fuel stored in wings?
     fuel_in_wingcen = true # Is fuel stored in wing center box?
     # todo: maybe update fuel ullability and reserves
-    fuel_usability_factor = 0.96 # fraction of max fuel volume that is usable
+    fuel_usability_factor = 0.9 # fraction of max fuel volume that is usable
 
     fuel_temp = 280.0
     fuel_density = 817.0 #kg/m3
@@ -65,23 +65,23 @@
 [Mission]
     N_missions = 2 # Number of missions to be modeled (first mission is the design mission)
                                 
-    range = ["3400.0 nmi", "4020.0 nmi"] # Design Range + second mission range
+    range = ["3350.0 nmi", "4010.0 nmi"] # Design Range + second mission range
 
     # all economy
     payload = ["148 pax", "0 pax"]     # Mission payload; pax can be used as a unit of weight.
                                         # Weight per pax also specified (215 lbf/pax is std)
     # todo: modify pax and range to match MZFW = 120,000 and WF = 52,500 
-    weight_per_pax = "175.0 lbf"    # Specify weight per passenger - 
+    weight_per_pax = "173.0 lbf"    # Specify weight per passenger - 
                                     # includes luggage [lbm or lbf or kg or N] 
                                     # judging you if you use imperial units but wtvs
 
-    exit_limit = 148            # Maximum number of passengers that can sit in the cabin
+    exit_limit = 223            # Maximum number of passengers that can sit in the cabin
 
-    max_payload = "148 pax"     # Defines the maximum payload carrying capacity of the aircraft
+    max_payload = "223 pax"     # Defines the maximum payload carrying capacity of the aircraft
                                 # It is the maximum payload that the aircraft can carry (including cargo),
                                 # in an off-design mission
 
-    fuel_reserves = 0.14 # W_reserveFuel / W_fuelburned
+    fuel_reserves = 0.15 # W_reserveFuel / W_fuelburned
 
     Nlift = 3.0 # Max vertical load factor for wing bending loads
     Vne = "280 kts" # Never exceed IAS for tail loads
@@ -107,9 +107,9 @@
     minimum_top-of-climb_gradient = 0.015
 
 [Mission.Cruise]
-    cruise_alt  = ["30000 ft", "32000 ft"] 
+    cruise_alt  = ["30000 ft", "31000 ft"] 
     cruise_mach = 0.80
-    cruise_CL   = 0.57 #By default, this gets recalculated for off-design mission analysis
+    cruise_CL   = 0.51 #By default, this gets recalculated for off-design mission analysis
                        # (see `fly_mission!()` and `PayloadRange()` for details, or to recalculate altitude instead).
 
 [Mission.Descent]
@@ -121,7 +121,7 @@
 
 [Fuselage.Geometry]
     number_of_bubbles = 1  # SingleBubble or MultiBubble Designs
-    radius = "77 in"       # Fuselage radius
+    radius = "75 in"       # Fuselage radius
     dRadius = "15 in"      # Downward shift of lower bubbles
     y_offset = 0.0         # y offset of bubble center
     floor_depth = "5.0 in" # depth of floor beams
@@ -141,7 +141,7 @@
     floor_distance  = "0 in" #Vertical distance between floors if double decker
     min_top_cabin_height  = "2 m" #Minimum height of top cabin, if double decker
     seat_pitch      = "30 in"
-    seat_width      = "19 in"
+    seat_width      = "17 in"
     seat_height     = "45 in"
     aisle_halfwidth = "10 in"
     front_seat_offset = "10 ft" #Distance from front of cabin to first seat
@@ -150,12 +150,12 @@
 
     #Provided layout
     x_nose_tip           = "0 ft"
-    x_pressure_shell_fwd = "17 ft"
-    x_start_cylinder     = "20 ft"
-    x_end_cylinder       = "97 ft"
-    x_pressure_shell_aft = "102 ft"
-    x_cone_end           = "117 ft"
-    x_end                = "124 ft"
+    x_pressure_shell_fwd = "12 ft"
+    x_start_cylinder     = "15 ft"
+    x_end_cylinder       = "82 ft"
+    x_pressure_shell_aft = "86 ft"
+    x_cone_end           = "99 ft"
+    x_end                = "105 ft"
     
 # Power systems and landing gear locations
     x_HPE_sys = "62ft" #Hydraulic, Pneumatic and Electrical systems
@@ -171,7 +171,7 @@
 [Fuselage.Weights]
     stringer = 0.35   # (Weight of stringers)/ Wskin
     frame    = 0.25   # (Weight of frame)/ Wskin
-    additional = 0.20 # (Additional weight)/ Wskin
+    additional = 0.25 # (Additional weight)/ Wskin
 
     fixed_weight = "3000 lbf" #cockpit, pilots etc
 
@@ -201,8 +201,8 @@
     has_strut = false
 
     sweep = 26.0 # wing sweep in degrees
-    AR    = 10.1
-    maxSpan = "117.5 ft"
+    AR    = 10
+    maxSpan = "113 ft"
 
     inner_panel_taper_ratio = 0.7  #cs/co
     outer_panel_taper_ratio = 0.25 #ct/co
@@ -217,7 +217,7 @@
     hweb_to_hbox = 0.75 #web-height/hbox ratio
     spar_box_x_c = 0.40 # spar box axis x/c location
 
-    x_wing_box = "57 ft"
+    x_wing_box = "55 ft"
     z_wing  = "-5.5 ft"
     z_strut = "154 in" #Note only used if `has_strut = true`
 
@@ -294,10 +294,10 @@
     [Stabilizers.Htail]
         multi_section = false # True for inner and outer section
         AR_Htail = 6.0
-        taper = 0.25
-        sweep = 26.0 #typically can be set to be the same as the wings
+        taper = 0.20
+        sweep = 32 #typically can be set to be the same as the wings
         center_box_halfspan = "2.5 ft"
-        x_Htail = "114.5 ft"
+        x_Htail = "93 ft"
         z_Htail = "0 ft"
         number_Htails = 2.0
 
@@ -331,11 +331,11 @@
         web_height_hbox  = 0.75
 
     [Stabilizers.Vtail]
-        AR_Vtail = 2.0
-        taper = 0.30
-        sweep = 25.0
+        AR_Vtail = 1.9
+        taper = 0.27
+        sweep = 28.0
         center_box_halfspan = 0.0
-        x_Vtail = "110 ft"
+        x_Vtail = "95 ft"
         number_Vtails = 1.0
 
         # How do you want to size the vertical stabilizer?
