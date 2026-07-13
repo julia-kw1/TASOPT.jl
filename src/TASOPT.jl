@@ -115,21 +115,21 @@ RSL = pSL / (ρSL * TSL)
 # Sizing function
 # ----------------------
 """
-    size_aircraft(ac::aircraft; iter=35, initwgt=false, Ldebug=false,
-        printiter=true, saveOD=false)
+    size_aircraft!(ac::aircraft; iter=35, initwgt=false, Ldebug=false,
+        printiter=true, saveOD=false, fixed_geometry=false)
 
-sizes the given `aircraft` instance. A light wrapper around the `_size_aircraft!` function, which does the actual work.
+Sizes the given `aircraft` instance. A light wrapper around the `_size_aircraft!`
+function, which does the actual work.
 """
 function size_aircraft!(ac::aircraft; iter=35, initwgt=false, Ldebug=false,
-        printiter=true, saveOD=false)
+        printiter=true, saveOD=false, fixed_geometry=false)
 
     Ldebug && println("Max weight iterations = $iter")
-    _size_aircraft!(ac, itermax = iter, initwgt = initwgt,
-        Ldebug = Ldebug, printiter = printiter,
-        saveODperf = saveOD)
 
-    #if sized properly, mark as such
-    #TODO: apply logic and exit codes to make check more robust
+    _size_aircraft!(ac, itermax=iter, initwgt=initwgt,
+        Ldebug=Ldebug, printiter=printiter,
+        saveODperf=saveOD, fixed_geometry=fixed_geometry)
+
     ac.is_sized .= true
     ;
 end # size_aircraft!
