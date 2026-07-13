@@ -22,8 +22,9 @@ and iterates until the MTOW converges to within a specified tolerance. Formerly,
     - No explicit outputs. Computed quantities are saved to `par` arrays of `aircraft` model.
 """
 function _size_aircraft!(ac; itermax=35,
-    wrlx1=0.5, wrlx2=0.9, wrlx3=0.5, initwgt=false, initializes_engine=true, 
-    iairf=1, Ldebug = false, printiter=true, saveODperf=false)
+    wrlx1=0.5, wrlx2=0.9, wrlx3=0.5, initwgt=false, initializes_engine=true,
+    iairf=1, Ldebug=false, printiter=true, saveODperf=false,
+    fixed_geometry=false)
 
     # Unpack data storage arrays and components
     imission = 1 #Design mission
@@ -158,7 +159,7 @@ function _size_aircraft!(ac; itermax=35,
     ## Initial guess section [Section 3.2 of TASOPT docs]
     # -------------------------------------------------------
     # Allow first iteration
-    if (initwgt == 0)
+    if (initwgt == 0 && !fixed_geometry)
 
         # Initial weight estimates
         Whtail = 0.05 * Wpay / parg[igsigfac]
@@ -345,7 +346,7 @@ function _size_aircraft!(ac; itermax=35,
     Lconv = false
 
     # Initialize wing layout parameters for first iteration
-    wing.layout.span= wing.layout.S = 0.0
+    !fixed_geometry && (wing.layout.span = wing.layout.S = 0.0)
 
     # Initialize choke flags for all mission points
     ichoke5 = ichoke7 = zeros(Int, iptotal)
@@ -436,11 +437,11 @@ function _size_aircraft!(ac; itermax=35,
         WbuoyCR = (ρcab - pare[ierho0, ipcruise1]) * gee * parg[igcabVol]
 
         if (iterw == 1 && initwgt == 0)
-
+        
             feng = 0.08
             fsum = feng + ffuel + fuse.HPE_sys.W + flgnose + flgmain
-            WMTO = (Wpay + fuse.weight + Wwing + Wstrut + Whtail + Wvtail) / (1.0 - fsum)
 
+            WMTO = (Wpay + fuse.weight + Wwing + Wstrut + Whtail + Wvtail) / (1.0 - fsum)
             Weng, Wfuel = WMTO .* [feng, ffuel]
             parg[igWMTO] = WMTO
             parg[igWeng] = Weng
@@ -498,13 +499,13 @@ function _size_aircraft!(ac; itermax=35,
         BW = We + WbuoyCR # Weight including buoyancy
 
         # Size the wing area and chords
-        set_wing_geometry!(BW, CL, qinf, wing)
+        !fixed_geometry && set_wing_geometry!(BW, CL, qinf, wing)
 
         # Update wing box chord for fuseW in next iteration
         cbox = wing.layout.root_chord * wing.inboard.cross_section.width_to_chord
 
         # Calculate wing centroid and mean aerodynamic chord
-        calculate_centroid_offset!(wing,calc_cma=true)
+        !fixed_geometry && calculate_centroid_offset!(wing, calc_cma=true)
         xwing = wing.layout.x
         
         # Update wing pitching moment constants
@@ -604,19 +605,23 @@ function _size_aircraft!(ac; itermax=35,
         # TODO: Add switch to either calculate fuse pitching moment online or use offline specified values
 
         # Size HT
-        if (iterw <= 2 && initwgt == 0)
+        if !fixed_geometry && iterw <= 2 && initwgt == 0
             lhtail = xhtail - xwing
             Vh = htail.volume
             Sh = Vh * wing.layout.S * wing.mean_aero_chord / lhtail
             htail.layout.S = Sh
-        else
+        end
+
+        if !fixed_geometry && !(iterw <= 2 && initwgt == 0)
             size_htail(ac, view(para, :, ipdescentn), view(para, :, ipcruise1), view(para, :, ipcruise1);
                     Ldebug=Ldebug)
             wing.layout.box_x, xwing = wing.layout.box_x, wing.layout.x
             lhtail = xhtail - xwing
-            Sh = htail.layout.S
-            htail.volume = Sh * lhtail / (wing.layout.S * wing.mean_aero_chord)
+            htail.volume = htail.layout.S * lhtail / (wing.layout.S * wing.mean_aero_chord)
         end
+
+        lhtail = xhtail - xwing
+        Sh = htail.layout.S
 
         # Vertical tail sizing 
         ip = iprotate
@@ -629,29 +634,38 @@ function _size_aircraft!(ac; itermax=35,
         # Calculate max eng out moment
         Me = (Fe + De) * yeng
 
-        #Size vertical tail ("size_vtail()")
-        if compare_strings(vtail.opt_sizing,"fixed_Vv")
-            lvtail = xvtail - xwing
+        # Size vertical tail
+        lvtail = xvtail - xwing
+
+        if !fixed_geometry && compare_strings(vtail.opt_sizing, "fixed_Vv")
             Vv = vtail.volume
-            Sv = Vv * wing.layout.S * wing.layout.span/ lvtail
+            Sv = Vv * wing.layout.S * wing.layout.span / lvtail
             vtail.layout.S = Sv
-            parg[igCLveout] = Me / (qstall * Sv * lvtail)
-        elseif compare_strings(vtail.opt_sizing,"OEI")
-            lvtail = xvtail - xwing
+        end
+
+        if !fixed_geometry && compare_strings(vtail.opt_sizing, "OEI")
             CLveout = parg[igCLveout]
             Sv = Me / (qstall * CLveout * lvtail)
             vtail.layout.S = Sv
             vtail.volume = Sv * lvtail / (wing.layout.S * wing.layout.span)
         end
 
+        Sv = vtail.layout.S
+        parg[igCLveout] = Me / (qstall * Sv * lvtail)
+
         # Set HT max loading magnitude
-        poh,htail.layout.span = tail_loading!(htail,Sh, qne)
+        poh, bh2 = tail_loading!(htail, Sh, qne)
+        !fixed_geometry && (htail.layout.span = bh2)
         htail.layout.ηs = htail.layout.ηo
-        
+
         # Set VT max loading magnitude, based on single tail + its bottom image
-        pov,bv2 = tail_loading!(vtail,2.0 * Sv / vtail.ntails, qne; t_fac=2.0)
-        bv = bv2 / 2
-        vtail.layout.span = bv2
+        pov, bv2 = tail_loading!(vtail, 2.0 * Sv / vtail.ntails, qne; t_fac=2.0)
+
+        if !fixed_geometry
+            bv = bv2 / 2
+            vtail.layout.span = bv2
+        end
+
         vtail.layout.ηs = vtail.layout.ηo
 
         # HT weight
@@ -673,7 +687,7 @@ function _size_aircraft!(ac; itermax=35,
             0.0, 0.0, 0, 0.0, 0, 0.0,
             parg[igsigfac], rhofuel; n_wings=vtail.ntails)
         # Set VT span
-        vtail.layout.span = vtail.layout.span/2.0
+        !fixed_geometry && (vtail.layout.span = vtail.layout.span / 2.0)
         
         # VT centroid x-offset
         calculate_centroid_offset!(vtail, bv2, λhs)
@@ -687,7 +701,7 @@ function _size_aircraft!(ac; itermax=35,
             tanksize!(ac)
 
             # Update fuselage according to tank requirements
-            update_fuse!(ac) #update fuselage length to accommodate tank; boundary layer also recalculated
+            !fixed_geometry && update_fuse!(ac) #update fuselage length to accommodate tank; boundary layer also recalculated
             
             #Use homogeneous tank model to calculate required venting
             _, ps, _, _, _, _, _, Mvents, _, _ = CryoTank.analyze_TASOPT_tank(ac, fuse_tank.t_hold_orig, fuse_tank.t_hold_dest)
@@ -965,7 +979,6 @@ function update_weights!(ac, rlx)
     Wftank = parg[igWftank]
     Wpay = parg[igWpay]
     Wfuse = fuse.weight
-
     ftank = parg[igWftank] / WMTO
 
     fsum = fwing + fstrut + fhtail + fvtail + feng + ffuel + fuse.HPE_sys.W +

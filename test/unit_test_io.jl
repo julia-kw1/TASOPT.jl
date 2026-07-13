@@ -40,6 +40,37 @@
     @test ac_quick.parg[igWMTO] ≈ ac_def.parg[igWMTO]
     rm(filepath_quick)
 
+    #check that fixed geometry survives quicksave/load and stays fixed during sizing
+    filepath_quick_fixed = joinpath(TASOPT.__TASOPTroot__, "../test/iotest_quick_fixed.toml")
+    quicksave_aircraft(ac_def, filepath_quick_fixed)
+    ac_quick_fixed = quickload_aircraft(filepath_quick_fixed)
+
+    fixed_geometry_test = [ac_quick_fixed.wing.layout.S,
+                           ac_quick_fixed.wing.layout.span,
+                           ac_quick_fixed.htail.layout.S,
+                           ac_quick_fixed.htail.layout.span,
+                           ac_quick_fixed.vtail.layout.S,
+                           ac_quick_fixed.vtail.layout.span,
+                           ac_quick_fixed.fuselage.layout.x_end_cylinder,
+                           ac_quick_fixed.fuselage.layout.x_pressure_shell_aft,
+                           ac_quick_fixed.fuselage.layout.x_end]
+
+    size_aircraft!(ac_quick_fixed, Ldebug=false, printiter=false,
+                   saveOD=false, fixed_geometry=true)
+
+    fixed_geometry_out = [ac_quick_fixed.wing.layout.S,
+                          ac_quick_fixed.wing.layout.span,
+                          ac_quick_fixed.htail.layout.S,
+                          ac_quick_fixed.htail.layout.span,
+                          ac_quick_fixed.vtail.layout.S,
+                          ac_quick_fixed.vtail.layout.span,
+                          ac_quick_fixed.fuselage.layout.x_end_cylinder,
+                          ac_quick_fixed.fuselage.layout.x_pressure_shell_aft,
+                          ac_quick_fixed.fuselage.layout.x_end]
+
+    @test all(isapprox.(fixed_geometry_out, fixed_geometry_test))
+    rm(filepath_quick_fixed)
+
     #check via MTOW that changing an important parameter survives the quicksave
     # and changes the solution
     filepath_quick_nopay = joinpath(TASOPT.__TASOPTroot__, "../test/iotest_quick_nopay.toml")
