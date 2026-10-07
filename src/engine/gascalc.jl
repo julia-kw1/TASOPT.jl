@@ -414,26 +414,32 @@ The constant-cp equivalent is the usual isentropic relations, but with epol incl
 
 """
 function gas_delh(alpha, n, po, to, ho, so, cpo, ro, delh, epol)
-   itmax = 10
-      ttol = 0.000001
+   # Enthalpy and cp come from separate table interpolants, so damp Newton
+   # corrections that reverse direction to avoid a two-point cycle.
+   itmax = 30
+      ttol = 0.0001
 
 
       t = to + delh / cpo
 
       dt = 0.0
+      dt_prev = 0.0
       for iter = 1:itmax
             s, s_t, h, h_t, cp, r = gassum(alpha, n, t)
             res = h - ho - delh
             res_t = h_t
 
             dt = -res / res_t
+            rlx = dt * dt_prev < 0.0 ? 0.5 : 1.0
+            step = rlx * dt
 
-            if (abs(dt) < ttol)
+            if (abs(step) < ttol)
                   p = po * exp(epol * (s - so) / r)
                   return p, t, h, s, cp, r
             end
 
-            t = t + dt
+            t = t + step
+            dt_prev = dt
       end
       println("gas_delh: convergence failed.  dT =", dt)
 
@@ -485,8 +491,8 @@ Same as gas_delh, but also returns Jacobians w.r.t. po,to,delh
 """
 function gas_delhd(alpha, n, po, to, ho, so, cpo, ro, delh, epol)
 
-      itmax = 15
-      ttol = 0.000001
+      itmax = 30
+      ttol = 0.0001
 
 
       t = to + delh / cpo
@@ -500,6 +506,7 @@ function gas_delhd(alpha, n, po, to, ho, so, cpo, ro, delh, epol)
       r_al = zeros(n)
 
       dt = 0.0
+      dt_prev = 0.0
       for iter = 1:itmax
 
             s, s_t, h, h_t, cp, r = gassum(alpha, n, t)
@@ -516,10 +523,14 @@ function gas_delhd(alpha, n, po, to, ho, so, cpo, ro, delh, epol)
             if (rlx * dt > 0.6 * t)
                   rlx = 0.6 * t / dt
             end
+            if (dt * dt_prev < 0.0)
+                  rlx = min(rlx, 0.5)
+            end
 
-            t = t + rlx * dt
+            step = rlx * dt
+            t = t + step
 
-            if (abs(dt) < ttol)
+            if (abs(step) < ttol)
                   s, s_t, h, h_t, cp, cp_t, r = gassumd(alpha, n, t)
                   res_t = h_t
 
@@ -563,8 +574,10 @@ function gas_delhd(alpha, n, po, to, ho, so, cpo, ro, delh, epol)
                   h_al, s_al, cp_al, r_al
             end
 
+            dt_prev = dt
+
       end
-      println("gas_delh: convergence failed.  dT =", dt)
+      println("gas_delhd: convergence failed.  dT =", dt)
 
 end # gas_delhd
 
