@@ -4,8 +4,6 @@ using TASOPT
 using Printf
 using Plots
 using NLopt
-using CSV
-using DataFrames
 
 # you can optionally define
 # const tas = TASOPT 
@@ -23,10 +21,9 @@ OPRarray = []
 plot_obj = nothing
 
 # Load default aircraft model
-ac = read_aircraft_model(
-    "C:/Users/Julia/Documents/TASOPT.jl/example/defaults/default_input_700.toml",
-    templatefile = "C:/Users/Julia/Documents/TASOPT.jl/example/defaults/default_input_700.toml"
-)
+ac = load_default_model()
+# ac.engine.model.weight_model_name = "fitzgerald_adv"
+size_aircraft!(ac)
 
 # For constraint logging
 struct Constraint
@@ -54,13 +51,11 @@ function obj(x, grad)
     ac.para[iarclt, ipclimb2:ipdescent4, 1] .= x[10]        # Tip/root CL ratio = clt/clo
     
     # Update engine parameters
-
-    # fixed engine parameters that were only being set for ipcruise1 before, not ipcruise2 - need to update for all cruise points
     ac.pare[ieTt4, ipcruise1:ipcruise2, 1] .= x[11]         # Turbine inlet temperature [K]
-    ac.pare[iepihc, ipcruise1:ipcruise2, 1] .= x[12]        # High pressure compressor pressure ratio
-    ac.pare[iepif, ipcruise1:ipcruise2, 1] .= x[13]                   # Fan pressure ratio
+    ac.pare[iepihc, ipcruise1, 1] = x[12]        # High pressure compressor pressure ratio
+    ac.pare[iepif, ipcruise1, 1] = x[13]                   # Fan pressure ratio
     ac.pare[iepilc, ipcruise1, 1] = 3.0          # Low pressure compressor pressure ratio (fixed)
-    ac.pare[ieBPR,  ipcruise1:ipcruise2, 1] .= x[14] # Bypass ratio
+    ac.pare[ieBPR, ipcruise1, 1] = x[14] # Bypass ratio
 
     # Size aircraft with new parameters
     try
@@ -103,8 +98,7 @@ function obj(x, grad)
     end
 
     # 3. Maximum turbine temperature constraint
-    # changed max tt3max (tons of errors with tt3 during optimization bc was too low previously)
-    Tt3max = 1050.0  # [K]
+    Tt3max = 900.0  # [K]
     Tt3 = maximum(ac.pare[ieTt3, :, 1])
     if Tt3 > Tt3max
         constraint = Tt3/Tt3max - 1.0
@@ -123,8 +117,6 @@ function obj(x, grad)
         total_penalty += penalty
         push!(violated_constraints, Constraint("Fuel volume", Wf, Wfmax, penalty))
     end
-
-    # TODO change the design mission to change the top of climb
 
     # Optional additional constraints (commented out for flexibility)
     # 5. Maximum metal temperature constraint
@@ -186,6 +178,8 @@ function obj(x, grad)
         "TSFC[g/kN]" => ac.pare[ieTSFC, ipcruise1, 1]/gee *1e3 *1e3,
     )
 
+    
+
     if iter == 1 || iter % 10 == 0
         @printf("%-5s", "Iter")
         for key in keys(diags_to_print)
@@ -219,9 +213,8 @@ end
 # Design variable bounds and initial values
 # Variables: [AR, CL, sweep, altitude, λ_in, λ_out, t/c_root, t/c_span, rcls, rclt, Tt4, π_hc, π_f, BPR]
 
-lower = [8.0,  0.4, 25.0, 9000.0, 0.65, 0.1,  0.125, 0.125, 0.9,  0.7,  1400.0, 10.0, 1.25, 1.0]
-upper = [20.0, 0.75, 30.0, 13000.0, 0.85, 0.4,  0.15,  0.15,  1.3,  1.0,  1650.0, 15.0, 2.0, 20.0]
-# fixed cruise_alt input to be meters (was in ft)
+lower = [6.0,  0.45, 25.0, 10000.0, 0.65, 0.1,  0.125, 0.125, 0.9,  0.7,  1400.0, 10.0, 1.25, 1.0]
+upper = [18.0, 0.75, 30.0, 20000.0, 0.85, 0.4,  0.15,  0.15,  1.3,  1.0,  1650.0, 15.0, 2.0, 20.0]
 
 # Set initial values based on default aircraft or user specification
 initial = [
@@ -247,27 +240,26 @@ for i in 1:length(initial)
 end
 
 # Initial step sizes for optimization
-initial_dx = [0.5, 0.05, 0.1, 100.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 100.0, 0.5, 0.05, 1.0]
-# updated initial dx to match meters
+initial_dx = [0.5, 0.05, 0.1, 200.0, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 100.0, 0.5, 0.05, 1.0]
 
 println(length(initial), length(initial_dx), length(upper), length(lower))
 # Optimization settings
-f_tol_rel = 1e-5
-maxeval = 2000  # Maximum number of function evaluations
+f_tol_rel = 1e-6
+maxeval = 1000  # Maximum number of function evaluations
 
 # Set up NLopt optimizer
 opt = NLopt.Opt(:LN_NELDERMEAD, length(initial))
 # Alternative optimizers:
 # opt = NLopt.Opt(:LN_BOBYQA, length(initial))    # Good for smooth functions
-# opt = NLopt.Opt(:LN_COBsYLA, length(initial))    # Handles constraints well
-#opt = NLopt.Opt(:LN_SBPLX, length(initial))     # Subplex algorithm
+# opt = NLopt.Opt(:LN_COBYLA, length(initial))    # Handles constraints well
+# opt = NLopt.Opt(:LN_SBPLX, length(initial))     # Subplex algorithm
 
 # Configure optimizer
 opt.lower_bounds = lower
 opt.upper_bounds = upper
 opt.min_objective = obj
 opt.initial_step = initial_dx
-opt.ftol_rel = f_tol_rel  
+opt.ftol_rel = f_tol_rel
 opt.maxeval = maxeval
 
 # Print optimization setup
@@ -287,29 +279,6 @@ println("="^60)
 # Run optimization
 println("Starting optimization...")
 (optf, optx, ret) = NLopt.optimize(opt, initial)
-
-# plot payload range for optimized design
-ac_opt = deepcopy(ac)
-TASOPT.PayloadRange(ac_opt, plots_OEW = true)
-
-pub_ranges_nmi = [0, 2100, 3350, 4010]
-pub_ZFW_lb = [121700, 121700, 108900, 84500] .* lbf_to_N ./ (9.81 * 1000)
-
-plot!(pub_ranges_nmi, pub_ZFW_lb,
-    label="Published Data",
-    marker=:diamond, ms=8, lw=2, color=:red, linestyle=:dash)
-    savefig("optimized_payload_range.png")
-
-
-TASOPT.weight_buildup(ac_opt) 
-TASOPT.geometry(ac_opt)
-TASOPT.aero(ac_opt)
-
-details = TASOPT.plot_details(ac_opt)
-savefig(details, "737optimized_details.png")
-
-oml = TASOPT.stickfig(ac_opt)
-savefig(oml, "737_opt_stickfig.png")
 
 # opt_time = @elapsed begin
 #     try
@@ -354,115 +323,48 @@ savefig(oml, "737_opt_stickfig.png")
 #     println("Warning: Could not generate aircraft details plot: $e")
 # end
 
-# Generate optimization history plots
-println("Generating optimization history plots...")
-try
-    # Create 2x2 layout for optimization history
-    layout = @layout [a b; c d]
+# # Generate optimization history plots
+# println("Generating optimization history plots...")
+# try
+#     # Create 2x2 layout for optimization history
+#     layout = @layout [a b; c d]
 
-    # Individual plots
-    p1 = plot(1:length(PFEIarray), PFEIarray, 
-              xlabel="Iteration", ylabel="PFEI (J/Nm)", 
-              title="Payload-Fuel Energy Intensity",
-              linewidth=2, marker=:circle, markersize=3)
+#     # Individual plots
+#     p1 = plot(1:length(PFEIarray), PFEIarray, 
+#               xlabel="Iteration", ylabel="PFEI (J/Nm)", 
+#               title="Payload-Fuel Energy Intensity",
+#               linewidth=2, marker=:circle, markersize=3)
 
-    p2 = plot(1:length(farray), farray, 
-              xlabel="Iteration", ylabel="Objective Function", 
-              title="Total Objective (with penalties)",
-              linewidth=2, marker=:circle, markersize=3,
-              yscale=:log10)
+#     p2 = plot(1:length(farray), farray, 
+#               xlabel="Iteration", ylabel="Objective Function", 
+#               title="Total Objective (with penalties)",
+#               linewidth=2, marker=:circle, markersize=3,
+#               yscale=:log10)
 
-    p3 = plot(1:length(CDarray), CDarray, 
-              xlabel="Iteration", ylabel="Drag Coefficient", 
-              title="Cruise Drag Coefficient",
-              linewidth=2, marker=:circle, markersize=3)
+#     p3 = plot(1:length(CDarray), CDarray, 
+#               xlabel="Iteration", ylabel="Drag Coefficient", 
+#               title="Cruise Drag Coefficient",
+#               linewidth=2, marker=:circle, markersize=3)
 
-    p4 = plot(1:length(OPRarray), OPRarray, 
-              xlabel="Iteration", ylabel="Overall Pressure Ratio", 
-              title="Engine Overall Pressure Ratio",
-              linewidth=2, marker=:circle, markersize=3)
+#     p4 = plot(1:length(OPRarray), OPRarray, 
+#               xlabel="Iteration", ylabel="Overall Pressure Ratio", 
+#               title="Engine Overall Pressure Ratio",
+#               linewidth=2, marker=:circle, markersize=3)
 
-    # Combine plots
-    combined_plot = plot(p1, p2, p3, p4,    
-                        layout=layout,
-                        size=(1200, 800),
-                        plot_title="Optimization History",
-                        titlefontsize=16)
+#     # Combine plots
+#     combined_plot = plot(p1, p2, p3, p4,    
+#                         layout=layout,
+#                         size=(1200, 800),
+#                         plot_title="Optimization History",
+#                         titlefontsize=16)
 
-    # Save optimization history plot
-    figname2 = "Opt_tutorial_iterations.png"
-    savefig(combined_plot, figname2)
-catch e
-    println("Warning: Could not generate optimization history plots: $e")
-end
+#     # Save optimization history plot
+#     figname2 = "Opt_tutorial_iterations"
+#     savefig(combined_plot, joinpath(savedir, figname2 * ".png"))
+#     println("Saved: $(joinpath(savedir, figname2 * ".png"))")
+# catch e
+#     println("Warning: Could not generate optimization history plots: $e")
+# end
 
 # println("\nOptimization complete!")
 # println("Output files saved in: $savedir")
-
-
-# -----------------------------
-# AR-Sref contour sweeps at two cruise altitudes
-# -----------------------------
-AR_range = 9.0:1.0:15.0
-range_range = 500.0:1000.0:5000.0
-
-altitude_cases = [
-    ("32,000 ft", 32_000.0 * ft_to_m),
-    ("35,000 ft", 35_000.0 * ft_to_m),
-]
-
-function sweep(base_ac, AR_vals, range_vals, cruise_alt_m)
-    MTOW_grid = fill(NaN, length(AR_vals), length(range_vals))
-    Wfuel_grid = fill(NaN, length(AR_vals), length(range_vals))
-    LD_grid = fill(NaN, length(AR_vals), length(range_vals))
-
-    for (i, AR) in enumerate(AR_vals)
-        for (j, range) in enumerate(range_vals)
-            ac_case = deepcopy(base_ac)
-            ac_case.wing.layout.AR = AR
-            ac_case.para[imRange, ipclimb1, 1] = range
-            ac_case.para[iaalt, ipclimbn:ipcruise2, 1] .= cruise_alt_m
-
-            try
-                print("Running sweep for AR=$(round(AR, digits=1)), Range=$(round(range, digits=0)) nmi, Altitude=$(round(cruise_alt_m/ft_to_m, digits=0)) ft... \n")
-                TASOPT.size_aircraft!(ac_case, iter=50, printiter=false)
-                # save as lbs and nmi for easier interpretation of results
-                MTOW_grid[i, j] = ac_case.parm[imWTO] / gee / lbf_to_N
-                Wfuel_grid[i, j] = ac_case.parg[igWfuel] / gee / lbf_to_N
-                LD_grid[i, j] = ac_case.para[iaCL, ipcruise1, 1] / ac_case.para[iaCD, ipcruise1, 1]
-            catch e
-                println("Sizing failed for AR=$AR, Range=$range, h=$(round(cruise_alt_m, digits=1)) m: $e")
-            end
-        end
-    end
-
-    return MTOW_grid, Wfuel_grid, LD_grid
-end
-
-results = Dict{String, NamedTuple{(:MTOW, :Wfuel, :LD), Tuple{Matrix{Float64}, Matrix{Float64}, Matrix{Float64}}}}()
-
-for (label, altitude_m) in altitude_cases
-    MTOW_grid, Wfuel_grid, LD_grid = sweep(ac_opt, AR_range, range_range, altitude_m)
-    results[label] = (MTOW=MTOW_grid, Wfuel=Wfuel_grid, LD=LD_grid)
-end
-
-function side_by_side_contours(metric_key::Symbol, metric_title::String, fname::String)
-    p = plot(layout=(1, length(altitude_cases)), size=(1200, 500))
-    for (idx, (label, _)) in enumerate(altitude_cases)
-        Z = getfield(results[label], metric_key)
-        contour!(p[idx],
-            AR_range,
-            range_range,
-            Z',
-            fill=true,
-            color=:viridis,
-            xlabel="Aspect Ratio",
-            ylabel="Range (nmi)",
-            title="$(metric_title) @ $label")
-    end
-    savefig(p, fname)
-end
-
-side_by_side_contours(:Wfuel, "Fuel Weight [lbs]", "Wfuel_contour_two_altitudes.png")
-side_by_side_contours(:MTOW, "MTOW [lbs]", "MTOW_contour_two_altitudes.png")
-side_by_side_contours(:LD, "L/D [-]", "LD_contour_two_altitudes.png")
