@@ -66,6 +66,7 @@ using .atmosphere
 using .aerodynamics
 using .structures
 using .engine
+export fuselage_wetted_area
 
 # Load primary aircraft structure 
 include(joinpath(__TASOPTroot__,"data_structs/landing_gear.jl"))

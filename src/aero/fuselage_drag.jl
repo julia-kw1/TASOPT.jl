@@ -1,6 +1,81 @@
 using StaticArrays
 
 """
+    fuselage_wetted_area(fuse)
+
+Estimate the external fuselage wetted area in square metres from the
+quasi-axisymmetric body contour used by [`fuselage_drag!`](@ref). The surface
+is integrated over the nose, cylindrical section, and tail; open/base areas
+are not included.
+"""
+function fuselage_wetted_area(fuse)
+      layout = fuse.layout
+      xnose = layout.x_nose
+      xend = layout.x_end
+      xblend1 = layout.x_start_cylinder
+      xblend2 = layout.x_end_cylinder
+
+      wfb = layout.bubble_center_y_offset
+      Rfuse = layout.radius
+      dRfuse = layout.bubble_lower_downward_shift
+      wfblim = max(min(wfb, Rfuse), 0.0)
+      thetafb = asin(wfblim / Rfuse)
+      hfb = sqrt(Rfuse^2 - wfb^2)
+      sin2t = 2.0 * hfb * wfb / Rfuse^2
+      Sfuse = (pi + 2.0 * thetafb + sin2t) * Rfuse^2 + 2.0 * Rfuse * dRfuse
+      Rcyl = sqrt(Sfuse / pi)
+
+      anose = layout.nose_radius
+      btail = layout.tail_radius
+      tapers_to_edge = compare_strings(layout.opt_tapers_to, "edge")
+
+      # Match the 30-panel, cosine-spaced body discretization in fuselage_drag!.
+      nc = 30
+      ilte = nc + 1
+      x = zeros(Float64, ilte)
+      z = zeros(Float64, ilte)
+      dy = zeros(Float64, ilte)
+
+      @inbounds for i = 1:ilte
+            frac = 0.5 * (1.0 - cos(pi * (i - 1) / (ilte - 1)))
+            x[i] = xnose * (1.0 - frac) + xend * frac
+
+            if i == 1 || i == ilte
+                  z[i] = 0.0
+            elseif x[i] < xblend1
+                  f = 1.0 - (x[i] - xnose) / (xblend1 - xnose)
+                  z[i] = Rcyl * (1.0 - f^anose)^(1.0 / anose)
+            elseif x[i] < xblend2
+                  z[i] = Rcyl
+            else
+                  f = (x[i] - xblend2) / (xend - xblend2)
+                  z[i] = Rcyl * (1.0 - f^btail)
+            end
+
+            if tapers_to_edge && x[i] >= xblend2
+                  dy[i] = Rcyl - z[i]
+            end
+      end
+
+      # Use the same finite trailing-edge closure as the flow model.
+      z[ilte] = 0.25 * z[ilte - 1]
+      if tapers_to_edge
+            dy[ilte] = Rcyl - z[ilte]
+      end
+
+      Awet = 0.0
+      @inbounds for i = 1:ilte-1
+            perimeter_i = 2.0 * pi * z[i] + (tapers_to_edge ? 4.0 * dy[i] : 0.0)
+            perimeter_ip1 = 2.0 * pi * z[i + 1] +
+                            (tapers_to_edge ? 4.0 * dy[i + 1] : 0.0)
+            ds = hypot(x[i + 1] - x[i], z[i + 1] - z[i])
+            Awet += 0.5 * (perimeter_i + perimeter_ip1) * ds
+      end
+
+      return Awet
+end
+
+"""
     fuselage_drag!(fuse, parg, para, ip)
 
 Calculates surface velocities, boundary layer, wake 
